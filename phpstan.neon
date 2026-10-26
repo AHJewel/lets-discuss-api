@@ -1,0 +1,15 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+
+parameters:
+    level: 6
+    paths:
+        - app/
+        - config/
+        - database/
+        - routes/
+    ignoreErrors:
+        # Published spatie config references the (not installed) MediaLibrary Pro model
+        -
+            identifier: class.notFound
+            path: config/media-library.php

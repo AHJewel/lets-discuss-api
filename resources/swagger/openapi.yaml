@@ -1,0 +1,204 @@
+openapi: 3.1.0
+info:
+  title: Lets Discuss API
+  version: 0.1.0
+  description: >
+    Spec-first contract for the Lets Discuss platform. The SPA authenticates with
+    Sanctum session cookies: call GET /sanctum/csrf-cookie first, then send the
+    XSRF-TOKEN cookie value back in the X-XSRF-TOKEN header on state-changing requests.
+servers:
+  - url: http://api.lets-discuss.localhost
+tags:
+  - name: System
+    description: Operational endpoints
+  - name: Auth
+    description: Session and CSRF handling
+paths:
+  /api/health:
+    get:
+      tags: [System]
+      operationId: getHealth
+      summary: Report whether the API and its dependencies are reachable
+      security: []
+      responses:
+        '200':
+          description: All dependencies are up
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+              example:
+                status: ok
+                services: { database: up, redis: up }
+        '503':
+          description: At least one dependency is down
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+              example:
+                status: degraded
+                services: { database: up, redis: down }
+  /sanctum/csrf-cookie:
+    get:
+      tags: [Auth]
+      operationId: initCsrf
+      summary: Issue the XSRF-TOKEN and session cookies
+      security: []
+      responses:
+        '204':
+          description: Cookies set on the .lets-discuss.localhost domain
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+              description: XSRF-TOKEN and lets-discuss-session cookies
+  /api/register:
+    post:
+      tags: [Auth]
+      operationId: register
+      summary: Register a new user and start a session
+      description: >
+        Creates a user with the `user` role and logs them in via the Sanctum session
+        cookie. Call GET /sanctum/csrf-cookie first and send the XSRF-TOKEN cookie
+        value in the X-XSRF-TOKEN header. Any `role` field in the body is ignored.
+        Throttled to 5 registrations per minute per IP.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            example:
+              name: Ada Lovelace
+              email: ada@example.com
+              password: correct-horse-battery
+              password_confirmation: correct-horse-battery
+      responses:
+        '201':
+          description: User created and session cookie set
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+              description: Authenticated lets-discuss-session cookie
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/User'
+              example:
+                data:
+                  id: 1
+                  name: Ada Lovelace
+                  email: ada@example.com
+                  role: user
+                  created_at: '2026-01-01T12:00:00+00:00'
+        '422':
+          description: Validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+              example:
+                message: The email has already been taken.
+                errors:
+                  email: [The email has already been taken.]
+        '429':
+          description: Too many registration attempts (5 per minute per IP)
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Seconds until the next attempt is allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                message: Too Many Attempts.
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: lets-discuss-session
+    xsrfToken:
+      type: apiKey
+      in: header
+      name: X-XSRF-TOKEN
+  schemas:
+    RegisterRequest:
+      type: object
+      required: [name, email, password, password_confirmation]
+      properties:
+        name:
+          type: string
+          maxLength: 255
+        email:
+          type: string
+          format: email
+          maxLength: 255
+          description: Must be unique
+        password:
+          type: string
+          format: password
+          minLength: 8
+          description: Must match password_confirmation and satisfy Laravel Password::defaults()
+        password_confirmation:
+          type: string
+          format: password
+    User:
+      type: object
+      required: [id, name, email, role, created_at]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [user, verified, admin]
+        created_at:
+          type: string
+          format: date-time
+    Error:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+    ValidationError:
+      type: object
+      required: [message, errors]
+      properties:
+        message:
+          type: string
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+    Health:
+      type: object
+      required: [status, services]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+        services:
+          type: object
+          additionalProperties:
+            type: string
+            enum: [up, down]
+security:
+  - sessionCookie: []
+    xsrfToken: []
